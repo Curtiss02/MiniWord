@@ -54,7 +54,6 @@ namespace MiniSoftware
             await stream.WriteAsync(bytes, 0, bytes.Length, token).ConfigureAwait(false);
         }
 
-
         private static void Generate(this OpenXmlElement xmlElement, WordprocessingDocument docx,
             Dictionary<string, object> tags)
         {
@@ -62,6 +61,7 @@ namespace MiniSoftware
             //AvoidSplitTagText(xmlElement);
             // avoid {{tag}} like <t>aa{</t><t>{</t>  test in...
             AvoidSplitTagText(xmlElement);
+            SimplifyFieldCodes(docx);
 
             // @foreach循环体
             ReplaceForeachStatements(xmlElement, docx, tags);
@@ -79,6 +79,8 @@ namespace MiniSoftware
             ReplaceIfStatements(xmlElement, tags);
 
             ReplaceText(xmlElement, docx, tags);
+            ReplaceFieldCode(xmlElement, docx, tags);
+
         }
 
         /// <summary>
@@ -153,6 +155,7 @@ namespace MiniSoftware
                             ReplaceIfStatements(newTr, tags: dic);
 
                             ReplaceText(newTr, docx, tags: dic);
+                            ReplaceFieldCode(newTr, docx, tags: dic);
                             //Fix #47 The table should be inserted at the template tag position instead of the last row
                             if (table.Contains(tr))
                             {
@@ -181,6 +184,8 @@ namespace MiniSoftware
                         ReplaceIfStatements(tr, tags: tagObj.ToDictionary());
 
                         ReplaceText(tr, docx, tags: dic);
+                        ReplaceFieldCode(tr, docx, tags: dic);
+
                     }
                 }
                 else
@@ -189,6 +194,8 @@ namespace MiniSoftware
                     if (!matchTxtProp.Success) continue;
 
                     ReplaceText(tr, docx, tags);
+                    ReplaceFieldCode(tr, docx, tags);
+
                 }
             }
         }
@@ -305,6 +312,76 @@ namespace MiniSoftware
                     sb.Clear();
                     pool.Clear();
                     needAppend = false;
+                }
+            }
+        }
+
+        internal static void SimplifyFieldCodes(WordprocessingDocument document)
+        {
+            var masks = new string[] { @"\s*DisplayBarcode\s*" };
+            SimplifyFieldCodesInElement(document.MainDocumentPart.RootElement, masks);
+
+            foreach (var headerPart in document.MainDocumentPart.HeaderParts)
+            {
+                SimplifyFieldCodesInElement(headerPart.Header, masks);
+            }
+
+            foreach (var footerPart in document.MainDocumentPart.FooterParts)
+            {
+                SimplifyFieldCodesInElement(footerPart.Footer, masks);
+            }
+
+        }
+
+        internal static void SimplifyFieldCodesInElement(OpenXmlElement element, string[] regexpMasks)
+        {
+            foreach (var run in element.Descendants<Run>()
+                .Select(item => (Run)item)
+                .ToList())
+            {
+                var fieldChar = run.Descendants<FieldChar>().FirstOrDefault();
+                if (fieldChar != null && fieldChar.FieldCharType == FieldCharValues.Begin)
+                {
+                    string fieldContent = "";
+                    List<Run> runsInFieldCode = new List<Run>();
+
+                    var currentRun = run.NextSibling();
+                    while ((currentRun is Run) && currentRun.Descendants<FieldCode>().FirstOrDefault() != null)
+                    {
+                        var currentRunFieldCode = currentRun.Descendants<FieldCode>().FirstOrDefault();
+                        fieldContent += currentRunFieldCode.InnerText;
+                        runsInFieldCode.Add((Run)currentRun);
+                        currentRun = currentRun.NextSibling();
+                    }
+
+                    // If there is more than one Run for the FieldCode, and is one we must change, set the complete text in the first Run and remove the rest
+                    if (runsInFieldCode.Count > 1)
+                    {
+                        // Check fielcode to know it's one that we must simplify (for not to change TOC, PAGEREF, etc.)
+                        bool applyTransform = false;
+                        foreach (string regexpMask in regexpMasks)
+                        {
+                            Regex regex = new Regex(regexpMask);
+                            Match match = regex.Match(fieldContent);
+                            if (match.Success)
+                            {
+                                applyTransform = true;
+                                break;
+                            }
+                        }
+
+                        if (applyTransform)
+                        {
+                            var currentRunFieldCode = runsInFieldCode[0].Descendants<FieldCode>().FirstOrDefault();
+                            currentRunFieldCode.Text = fieldContent;
+                            runsInFieldCode.RemoveAt(0);
+
+                            foreach (Run runToRemove in runsInFieldCode)
+                            {
+                                runToRemove.Remove();
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -500,10 +577,10 @@ namespace MiniSoftware
                         if (!isFullMatch && tag.Value is List<MiniWordForeach> forTags)
                         {
                             if (forTags.Any(forTag => forTag.Value.Keys.Any(dictKey =>
-                                {
-                                    var innerTag = "{{" + tag.Key + "." + dictKey + "}}";
-                                    return t.Text.Contains(innerTag);
-                                })))
+                            {
+                                var innerTag = "{{" + tag.Key + "." + dictKey + "}}";
+                                return t.Text.Contains(innerTag);
+                            })))
                             {
                                 isFullMatch = true;
                             }
@@ -620,7 +697,7 @@ namespace MiniSoftware
                                     {
                                         AddPicture(run, mainPart.GetIdOfPart(imagePart), pic);
                                     }
-                                    
+
                                 }
 
                                 t.Remove();
@@ -725,6 +802,7 @@ namespace MiniSoftware
                             else if (ele is Paragraph p)
                             {
                                 ReplaceText(p, docx, foreachDataDict);
+                                ReplaceFieldCode(p, docx, foreachDataDict);
                             }
                         }
 
@@ -995,9 +1073,9 @@ namespace MiniSoftware
                                             new A.PresetGeometry(
                                                     new A.AdjustValueList()
                                                 )
-                                                { Preset = A.ShapeTypeValues.Rectangle }))
+                                            { Preset = A.ShapeTypeValues.Rectangle }))
                                 )
-                                { Uri = "http://schemas.openxmlformats.org/drawingml/2006/picture" })
+                            { Uri = "http://schemas.openxmlformats.org/drawingml/2006/picture" })
                     )
                     {
                         DistanceFromTop = (UInt32Value)0U,
@@ -1023,14 +1101,14 @@ namespace MiniSoftware
             DW.SimplePosition simplePosition3 = new DW.SimplePosition() { X = 0L, Y = 0L };
 
             DW.HorizontalPosition horizontalPosition3 = new DW.HorizontalPosition()
-                { RelativeFrom = DW.HorizontalRelativePositionValues.Column };
+            { RelativeFrom = DW.HorizontalRelativePositionValues.Column };
             DW.PositionOffset positionOffset5 = new DW.PositionOffset();
             positionOffset5.Text = $"{pic.HorizontalPositionOffset * 9525}";
 
             horizontalPosition3.Append(positionOffset5);
 
             DW.VerticalPosition verticalPosition3 = new DW.VerticalPosition()
-                { RelativeFrom = DW.VerticalRelativePositionValues.Paragraph };
+            { RelativeFrom = DW.VerticalRelativePositionValues.Paragraph };
             DW.PositionOffset positionOffset6 = new DW.PositionOffset();
             positionOffset6.Text = $"{pic.VerticalPositionOffset * 9525}";
 
@@ -1039,12 +1117,12 @@ namespace MiniSoftware
 
 
             DW.EffectExtent effectExtent13 = new DW.EffectExtent()
-                { LeftEdge = 0L, TopEdge = 0L, RightEdge = 0L, BottomEdge = 0L };
+            { LeftEdge = 0L, TopEdge = 0L, RightEdge = 0L, BottomEdge = 0L };
             DW.WrapNone wrapNone3 = new DW.WrapNone();
 
 
             DW.DocProperties docProperties13 = new DW.DocProperties()
-                { Id = (UInt32Value)774829591U, Name = $"Picture {Guid.NewGuid().ToString()}" };
+            { Id = (UInt32Value)774829591U, Name = $"Picture {Guid.NewGuid().ToString()}" };
 
             DW.NonVisualGraphicFrameDrawingProperties nonVisualGraphicFrameDrawingProperties13 =
                 new DW.NonVisualGraphicFrameDrawingProperties();
@@ -1059,14 +1137,14 @@ namespace MiniSoftware
             graphic13.AddNamespaceDeclaration("a", "http://schemas.openxmlformats.org/drawingml/2006/main");
 
             A.GraphicData graphicData13 = new A.GraphicData()
-                { Uri = "http://schemas.openxmlformats.org/drawingml/2006/picture" };
+            { Uri = "http://schemas.openxmlformats.org/drawingml/2006/picture" };
 
             PIC.Picture picture13 = new PIC.Picture();
             picture13.AddNamespaceDeclaration("pic", "http://schemas.openxmlformats.org/drawingml/2006/picture");
 
             PIC.NonVisualPictureProperties nonVisualPictureProperties13 = new PIC.NonVisualPictureProperties();
             PIC.NonVisualDrawingProperties nonVisualDrawingProperties13 = new PIC.NonVisualDrawingProperties()
-                { Id = (UInt32Value)0U, Name = $"Image {Guid.NewGuid().ToString()}.{pic.Extension}" };
+            { Id = (UInt32Value)0U, Name = $"Image {Guid.NewGuid().ToString()}.{pic.Extension}" };
             PIC.NonVisualPictureDrawingProperties nonVisualPictureDrawingProperties13 =
                 new PIC.NonVisualPictureDrawingProperties();
 
@@ -1076,7 +1154,7 @@ namespace MiniSoftware
             PIC.BlipFill blipFill13 = new PIC.BlipFill();
 
             A.Blip blip13 = new A.Blip()
-                { Embed = relationshipId, CompressionState = A.BlipCompressionValues.Print };
+            { Embed = relationshipId, CompressionState = A.BlipCompressionValues.Print };
 
             A.BlipExtensionList blipExtensionList11 = new A.BlipExtensionList();
             A.BlipExtension blipExtension11 = new A.BlipExtension() { Uri = $"{{{Guid.NewGuid().ToString("n")}}}" };
@@ -1131,7 +1209,7 @@ namespace MiniSoftware
             drawing13.Append(anchor3);
             appendElement.Append((drawing13));
         }
-
+        
         private static byte[] GetBytes(string path)
         {
             return GetByteAsync(path).GetAwaiter().GetResult();
@@ -1145,6 +1223,62 @@ namespace MiniSoftware
                 //use default size 81920
                 await st.CopyToAsync(ms, 81920, token).ConfigureAwait(false);
                 return ms.ToArray();
+            }
+        }
+
+        private static void ReplaceFieldCode(OpenXmlElement xmlElement, WordprocessingDocument docx, Dictionary<string, object> tags)
+        {
+            var paragraphs = xmlElement.Descendants<Paragraph>().ToArray();
+            foreach (var p in paragraphs)
+            {
+                ReplaceFieldCode(p, docx, tags);
+            }
+        }
+
+        private static void ReplaceFieldCode(Paragraph p, WordprocessingDocument docx, Dictionary<string, object> tags)
+        {
+            var runs = p.Descendants<Run>().ToArray();
+
+            foreach (var run in runs)
+            {
+                var texts = run.Descendants<FieldCode>().ToArray();
+                if (texts.Length == 0)
+                    continue;
+                foreach (FieldCode t in texts)
+                {
+                    foreach (var tag in tags)
+                    {
+                        // 完全匹配
+                        var isFullMatch = t.Text.Contains($"{{{{{tag.Key}}}}}");
+                        // 层级匹配，如{{A.B.C.D}}
+                        var partMatch = new Regex($".*{{{{({tag.Key}(\\.\\w+)+)}}}}.*").Match(t.Text);
+
+                        if (!isFullMatch && tag.Value is List<MiniWordForeach> forTags)
+                        {
+                            if (forTags.Any(forTag => forTag.Value.Keys.Any(dictKey =>
+                            {
+                                var innerTag = "{{" + tag.Key + "." + dictKey + "}}";
+                                return t.Text.Contains(innerTag);
+                            })))
+                            {
+                                isFullMatch = true;
+                            }
+                        }
+
+                        if (isFullMatch || partMatch.Success)
+                        {
+                            var key = isFullMatch ? tag.Key : partMatch.Groups[1].Value;
+                            var value = isFullMatch ? tag.Value : GetObjVal(tags, key);
+
+                            if (value is string)
+                            {
+                                var newText = value?.ToString();
+                                t.Text = t.Text.Replace($"{{{{{key}}}}}", newText);
+                            }
+                        }
+                    }
+
+                }
             }
         }
     }
