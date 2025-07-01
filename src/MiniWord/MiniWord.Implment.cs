@@ -1248,22 +1248,10 @@ namespace MiniSoftware
                 {
                     foreach (var tag in tags)
                     {
-                        // 完全匹配
+                        // Exact match
                         var isFullMatch = t.Text.Contains($"{{{{{tag.Key}}}}}");
-                        // 层级匹配，如{{A.B.C.D}}
+                        // Hierarchical matching, eg {{A.B.C.D}}
                         var partMatch = new Regex($".*{{{{({tag.Key}(\\.\\w+)+)}}}}.*").Match(t.Text);
-
-                        if (!isFullMatch && tag.Value is List<MiniWordForeach> forTags)
-                        {
-                            if (forTags.Any(forTag => forTag.Value.Keys.Any(dictKey =>
-                            {
-                                var innerTag = "{{" + tag.Key + "." + dictKey + "}}";
-                                return t.Text.Contains(innerTag);
-                            })))
-                            {
-                                isFullMatch = true;
-                            }
-                        }
 
                         if (isFullMatch || partMatch.Success)
                         {
