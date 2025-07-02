@@ -1,10 +1,5 @@
 namespace MiniSoftware
 {
-    using DocumentFormat.OpenXml;
-    using DocumentFormat.OpenXml.Packaging;
-    using DocumentFormat.OpenXml.Wordprocessing;
-    using Extensions;
-    using Utility;
     using System;
     using System.Collections;
     using System.Collections.Generic;
@@ -12,14 +7,15 @@ namespace MiniSoftware
     using System.Linq;
     using System.Text;
     using System.Text.RegularExpressions;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using DocumentFormat.OpenXml;
+    using DocumentFormat.OpenXml.Packaging;
+    using DocumentFormat.OpenXml.Wordprocessing;
+    using Extensions;
     using A = DocumentFormat.OpenXml.Drawing;
     using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
     using PIC = DocumentFormat.OpenXml.Drawing.Pictures;
-    using System.Xml;
-    using System.Xml.Linq;
-    using DocumentFormat.OpenXml.Drawing.Charts;
-    using System.Threading.Tasks;
-    using System.Threading;
 
     public static partial class MiniWord
     {
