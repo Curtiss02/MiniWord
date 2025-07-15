@@ -592,6 +592,34 @@ namespace MiniSoftware
 
                                 t.Remove();
                             }
+                            else if (value is IEnumerable<MiniWordPicture> pictures)
+                            {
+                                // 新增一个标签插入图片集合
+                                foreach (var pic in pictures)
+                                {
+                                    byte[] l_Data = null;
+                                    if (pic.Path != null) l_Data = File.ReadAllBytes(pic.Path);
+                                    if (pic.Bytes != null) l_Data = pic.Bytes;
+
+                                    var mainPart = docx.MainDocumentPart;
+                                    var imagePart = mainPart.AddImagePart(pic.GetImagePartType);
+                                    using (var stream = new MemoryStream(l_Data))
+                                    {
+                                        imagePart.FeedData(stream);
+                                        if (pic.WrappingType == MiniWordPictureWrappingType.Anchor)
+                                        {
+                                            AddPictureAnchor(run, mainPart.GetIdOfPart(imagePart), pic);
+                                        }
+                                        else
+                                        {
+                                            AddPicture(run, mainPart.GetIdOfPart(imagePart), pic);
+                                        }
+                                        // 每个图片不换行
+                                        run.Append(new Text(" "));
+                                    }
+                                }
+                                t.Remove();
+                            }
                             else if (value is MiniWordPicture)
                             {
                                 var pic = (MiniWordPicture)value;
